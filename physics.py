@@ -191,9 +191,10 @@ def resolve_all_collisions(objects):
             
 
 airResistance = 0.00
+radius = 5
 
 # Create physics objects
-physicsEngine.phyObject(20, 1, [100, 100], [0, 0], airResistance)
+physicsEngine.phyObject(radius, 1, [100, 100], [0, 0], airResistance)
 
 # Main loop
 running = True
@@ -204,8 +205,28 @@ while running:
             running = False
         elif event.type == pygame.MOUSEBUTTONDOWN:
             if event.button == 1:  # Left mouse button
+                # Store state for rapid fire
+                pygame._mouse_held = True
+                pygame._last_spawn_time = pygame.time.get_ticks()
+                # Create initial object
                 mouse_pos = pygame.mouse.get_pos()
-                physicsEngine.phyObject(20, 1, list(mouse_pos), [0,0], airResistance)
+                physicsEngine.phyObject(radius, 1, list(mouse_pos), [0,0], airResistance)
+        elif event.type == pygame.MOUSEBUTTONUP:
+            if event.button == 1:  # Left mouse button
+                pygame._mouse_held = False
+    
+    # Initialize mouse state if not already set
+    if not hasattr(pygame, '_mouse_held'):
+        pygame._mouse_held = False
+        pygame._last_spawn_time = 0
+    
+    # Rapid fire creation while mouse is held down
+    if pygame._mouse_held:
+        current_time = pygame.time.get_ticks()
+        if current_time - pygame._last_spawn_time > 100:  # Create new object every 100ms
+            mouse_pos = pygame.mouse.get_pos()
+            physicsEngine.phyObject(radius, 1, list(mouse_pos), [0,0], airResistance)
+            pygame._last_spawn_time = current_time
     
     # Clear the screen
     screen.fill((0, 0, 0))
@@ -215,7 +236,7 @@ while running:
         obj.draw(screen)
 
     # Update physics
-    verletSolveScreen(12)
+    verletSolveScreen(1)
     
     # Update the display
     pygame.display.flip()
