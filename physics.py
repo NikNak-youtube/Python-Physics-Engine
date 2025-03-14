@@ -211,8 +211,22 @@ while running:
                 # Create initial object
                 mouse_pos = pygame.mouse.get_pos()
                 physicsEngine.phyObject(radius, 1, list(mouse_pos), [0,0], airResistance)
+            elif event.button == 3:  # Right mouse button
+                # Store state for rapid fire
+                pygame._mouse_held = True
+                pygame._last_spawn_time = pygame.time.get_ticks()
+                # Create positive magnetic particle
+                mouse_pos = pygame.mouse.get_pos()
+                physicsEngine.magneticParticle(radius, 1, list(mouse_pos), [0,0], 1.0, airResistance)
+            elif event.button == 2:  # Middle mouse button
+                # Store state for rapid fire
+                pygame._mouse_held = True
+                pygame._last_spawn_time = pygame.time.get_ticks()
+                # Create negative magnetic particle
+                mouse_pos = pygame.mouse.get_pos()
+                physicsEngine.magneticParticle(radius, 1, list(mouse_pos), [0,0], -1.0, airResistance)
         elif event.type == pygame.MOUSEBUTTONUP:
-            if event.button == 1:  # Left mouse button
+            if event.button in [1, 2, 3]:  # Any mouse button
                 pygame._mouse_held = False
     
     # Initialize mouse state if not already set

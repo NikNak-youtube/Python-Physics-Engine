@@ -69,8 +69,8 @@ class phyObject:
         self.showed_velocity = 5
         objects.append(self)
 
-    def draw(self, screen):
-        pygame.draw.circle(screen, (255, 255, 255), (int(self.position[0]), int(self.position[1])), self.radius)
+    def draw(self, screen, color = (255, 255, 255)):
+        pygame.draw.circle(screen, color, (int(self.position[0]), int(self.position[1])), self.radius)
 
     def applyForces(self):
         NewAcceleration = [0, 0]
@@ -139,3 +139,35 @@ class phyObject:
                                 collision_y = (self.position[1] + obj.position[1]) / 2
                                 collisions.append(phyCollision([collision_x, collision_y], [dx, dy], overlap, overlap, obj))
         return collisions
+
+# Add a new class for magnetic particles that inherits from phyObject
+class magneticParticle(phyObject):
+    def __init__(self, radius, mass, position, velocity, charge, airResistance=0.03):
+        super().__init__(radius, mass, position, velocity, airResistance)
+        self.charge = charge
+
+    def draw(self, screen):
+        return super().draw(screen, (255*(self.charge > 0), 255*(self.charge < 0), 255))
+
+    def applyForces(self):
+        NewAcceleration = [0, 0]
+        # Apply gravity
+        NewAcceleration[1] += 9.8 * 20
+        # Apply magnetic force
+        for obj in objects:
+            if obj != self:
+                dx = obj.position[0] - self.position[0]
+                dy = obj.position[1] - self.position[1]
+                distance = max(0.0001, (dx**2 + dy**2)**0.5)
+                dx /= distance
+                dy /= distance
+                if isinstance(obj, magneticParticle):
+                    # Calculate magnetic force
+                    # Push particles apart if they have the same charge
+                    # Pull particles together if they have opposite charges
+                    force = 30000 * self.charge * -obj.charge / distance**2
+                else:
+                    force = 1000 * self.charge / distance**2
+                NewAcceleration[0] += force * dx / self.mass
+                NewAcceleration[1] += force * dy / self.mass
+        return NewAcceleration
