@@ -2,6 +2,41 @@ import pygame
 
 objects = []
 
+def circleCast(origin, target, radius, gridMap, width, height, gridX, gridY):
+    dx = target[0] - origin[0]
+    dy = target[1] - origin[1]
+    distance = (dx**2 + dy**2)**0.5
+    if distance == 0:
+        return None
+    dx /= distance
+    dy /= distance
+    x = origin[0]
+    y = origin[1]
+    # Cast circle along path
+    while True:
+        # Get cell coordinates
+        cell_x = min(gridX-1, max(0, int(x * gridX / width)))
+        cell_y = min(gridY-1, max(0, int(y * gridY / height)))
+        # Check for collisions
+        if gridMap[cell_y][cell_x]:
+            # Check each object in the cell
+            for obj_index in gridMap[cell_y][cell_x]:
+                obj = objects[obj_index]
+                dx = x - obj.position[0]
+                dy = y - obj.position[1]
+                distance = (dx**2 + dy**2)**0.5
+                if distance < (radius + obj.radius):
+                    return obj
+        # Move along path
+        x += dx
+        y += dy
+        # Check if we reached the target
+        if (x - origin[0])**2 + (y - origin[1])**2 > distance**2:
+            break
+    return None
+
+
+
 class phyCollision:
     colPoint = [0, 0]
     colNormal = [0, 0]
@@ -77,15 +112,15 @@ class phyObject:
             self.position[1] = height - self.radius
             self.velocity[1] *= -0.9
 
-    def checkForCollision(self, gridMap, width, height):
+    def checkForCollision(self, gridMap, width, height, gridX, gridY):
         collisions = []
-        cell_x = min(99, max(0, int(self.position[0] * 100 / width)))
-        cell_y = min(99, max(0, int(self.position[1] * 100 / height)))
+        cell_x = min(gridX-1, max(0, int(self.position[0] * gridX / width)))
+        cell_y = min(gridY, max(0, int(self.position[1] * gridY / height)))
         for y in range(3):
             for x in range(3):
                 ny = cell_y + y - 1
                 nx = cell_x + x - 1
-                if 0 <= ny < 100 and 0 <= nx < 100 and gridMap[ny][nx]:
+                if 0 <= ny < gridY and 0 <= nx < gridX and gridMap[ny][nx]:
                     for obj_index in gridMap[ny][nx]:
                         obj = objects[obj_index]
                         if obj != self:

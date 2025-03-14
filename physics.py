@@ -1,6 +1,7 @@
 import pygame
 import physicsEngine
 import threading
+import queue
 
 # Initialize pygame
 pygame.init()
@@ -15,14 +16,44 @@ clock = pygame.time.Clock()
 fps = 60
 
 
-gridX = 100
-gridY = 100
+gridX = int(800/40)
+gridY = int(600/40)
 
 grid = [[0 for _ in range(gridX)] for _ in range(gridY)]
 
+# Thread Pool
+class ThreadPool:
+    def __init__(self, num_threads):
+        self.num_threads = num_threads
+        self.threads = []
+        self.queue = queue.Queue()
+        self.done = False
+        
+        # Create and start threads
+        for _ in range(num_threads):
+            thread = threading.Thread(target=self.worker)
+            thread.start()
+            self.threads.append(thread)
+    
+    def worker(self):
+        while not self.done:
+            try:
+                task = self.queue.get(timeout=0.1)
+                task()
+            except queue.Empty:
+                pass
+    
+    def add_task(self, task):
+        self.queue.put(task)
+    
+    def wait_completion(self):
+        self.queue.join()
+        self.done = True
+        for thread in self.threads:
+            thread.join()
 
 
-def verletSolveScreen(mostThreads = 4): 
+def verletSolveScreen(mostThreads = 4, dt = 1.0 / fps): 
     objects = physicsEngine.objects
     global grid
     
@@ -41,8 +72,8 @@ def verletSolveScreen(mostThreads = 4):
     
     # Place objects in grid cells
     for i, obj in enumerate(objects):
-        cell_x = min(99, max(0, int(obj.position[0] * 100 / width)))
-        cell_y = min(99, max(0, int(obj.position[1] * 100 / height)))
+        cell_x = min(gridX-1, max(0, int(obj.position[0] * gridX / width)))
+        cell_y = min(gridY-1, max(0, int(obj.position[1] * gridY / height)))
         grid[cell_y][cell_x].append(i)
     
     # Split objects into chunks for multithreading
@@ -86,7 +117,7 @@ def resolve_all_collisions(objects):
     # Detect all collisions first
     all_collisions = []
     for obj in objects:
-        collisions = obj.checkForCollision(grid, width, height)
+        collisions = obj.checkForCollision(grid, width, height, gridX, gridY)
         for collision in collisions:
             # Add a unique identifier for each collision pair to avoid duplicates
             obj_id = id(obj)
@@ -105,40 +136,59 @@ def resolve_all_collisions(objects):
     
     # Process collisions in a deterministic order
     for pair_id, (obj, collision) in sorted_collisions:
-        # Store pre-collision velocities and calculate total speed
-        v1_before = [obj.velocity[0], obj.velocity[1]]
-        v2_before = [collision.otherObject.velocity[0], collision.otherObject.velocity[1]]
-        speed1_before = (v1_before[0]**2 + v1_before[1]**2)**0.5
-        speed2_before = (v2_before[0]**2 + v2_before[1]**2)**0.5
-        total_speed_before = speed1_before + speed2_before
-
-        # Separate objects more gradually to reduce jitter
-        position_correction_factor = 0.02  # Lower value for more gradual separation
-        obj.velocity[0] -= collision.colNormal[0] * collision.overlap * position_correction_factor
-        obj.velocity[1] -= collision.colNormal[1] * collision.overlap * position_correction_factor
-        collision.otherObject.velocity[0] += collision.colNormal[0] * collision.overlap * position_correction_factor
-        collision.otherObject.velocity[1] += collision.colNormal[1] * collision.overlap * position_correction_factor
+        # Check for more precise collision using circleCast from previous position
+        other_obj = collision.otherObject
         
-        # Update velocities with reduced energy
-        restitution = 1  # Lower restitution for less bouncy collisions
-
+        # Use circleCast to check if objects would have collided along their paths
+        hit_obj = physicsEngine.circleCast(
+            obj.prev_position,
+            obj.position,
+            obj.radius*1000,
+            grid,
+            width,
+            height,
+            gridX,
+            gridY
+        )
+        
+        # If circleCast found a collision point, use it for more accurate resolution
+        if hit_obj and hit_obj.id == other_obj.id:
+            # Calculate collision normal more precisely
+            dx = obj.position[0] - other_obj.position[0]
+            dy = obj.position[1] - other_obj.position[1]
+            distance = max(0.0001, (dx**2 + dy**2)**0.5)  # Avoid division by zero
+            collision.colNormal = [dx/distance, dy/distance]
+        
+        # Store pre-collision velocities
+        v1_before = [obj.velocity[0], obj.velocity[1]]
+        v2_before = [other_obj.velocity[0], other_obj.velocity[1]]
+        
         # Calculate velocity along the collision normal
         v1_dot = obj.velocity[0] * collision.colNormal[0] + obj.velocity[1] * collision.colNormal[1]
-        v2_dot = collision.otherObject.velocity[0] * collision.colNormal[0] + collision.otherObject.velocity[1] * collision.colNormal[1]
+        v2_dot = other_obj.velocity[0] * collision.colNormal[0] + other_obj.velocity[1] * collision.colNormal[1]
         
         # Only apply impulse if objects are moving toward each other
         relative_velocity = v1_dot - v2_dot
         if relative_velocity < 0:
-            # Calculate impulse scalar with restitution
-            impulse = -(1 + restitution) * relative_velocity
-            impulse /= (1/obj.mass + 1/collision.otherObject.mass)
+            # Separate objects to prevent sticking
+            separation_factor = 0.02
+            obj.position[0] += collision.colNormal[0] * collision.overlap * separation_factor
+            obj.position[1] += collision.colNormal[1] * collision.overlap * separation_factor
+            other_obj.position[0] -= collision.colNormal[0] * collision.overlap * separation_factor
+            other_obj.position[1] -= collision.colNormal[1] * collision.overlap * separation_factor
             
-            # Apply impulse with dampening factor
-            dampen = 0.5  # Lower dampening factor for smoother collisions
-            obj.velocity[0] -= (impulse / obj.mass) * collision.colNormal[0] * dampen
-            obj.velocity[1] -= (impulse / obj.mass) * collision.colNormal[1] * dampen
-            collision.otherObject.velocity[0] += (impulse / collision.otherObject.mass) * collision.colNormal[0] * dampen
-            collision.otherObject.velocity[1] += (impulse / collision.otherObject.mass) * collision.colNormal[1] * dampen
+            # Calculate impulse with restitution
+            restitution = 0.8  # Coefficient of restitution (0.8 = slightly less bouncy)
+            impulse = -(1 + restitution) * relative_velocity
+            impulse /= (1/obj.mass + 1/other_obj.mass)
+            
+            # Apply impulse
+            obj.velocity[0] += (impulse / obj.mass) * collision.colNormal[0]
+            obj.velocity[1] += (impulse / obj.mass) * collision.colNormal[1]
+            other_obj.velocity[0] -= (impulse / other_obj.mass) * collision.colNormal[0]
+            other_obj.velocity[1] -= (impulse / other_obj.mass) * collision.colNormal[1]
+
+            
 
 airResistance = 0.00
 
