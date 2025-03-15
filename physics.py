@@ -189,12 +189,158 @@ def resolve_all_collisions(objects):
             other_obj.velocity[1] -= (impulse / other_obj.mass) * collision.colNormal[1]
 
             
+# Define a Slider class for modular reuse
+class Slider:
+    def __init__(self, x, y, width, height, min_value, max_value, initial_value, label, precision=2):
+        self.x = x
+        self.y = y
+        self.width = width
+        self.height = height
+        self.min_value = min_value
+        self.max_value = max_value
+        self.value = initial_value
+        self.label = label
+        self.precision = precision
+    
+    def draw(self, screen):
+        # Draw slider background
+        pygame.draw.rect(screen, (100, 100, 100), (self.x, self.y, self.width, self.height))
+        
+        # Calculate handle position based on current value
+        value_range = self.max_value - self.min_value
+        handle_pos = self.x + int((self.value - self.min_value) / value_range * self.width)
+        
+        # Draw handle
+        pygame.draw.rect(screen, (200, 200, 200), (handle_pos - 5, self.y - 5, 10, self.height + 10))
+        
+        # Draw label and value
+        font = pygame.font.Font(None, 24)
+        display_value = round(self.value, self.precision)
+        label_text = font.render(f"{self.label}: {display_value}", True, (255, 255, 255))
+        screen.blit(label_text, (self.x + self.width + 10, self.y + self.height // 2 - 10))
+    
+    def handle_interaction(self, mouse_pos, mouse_pressed):
+        if mouse_pressed:
+            if (self.x <= mouse_pos[0] <= self.x + self.width and
+                self.y <= mouse_pos[1] <= self.y + self.height):
+                # Calculate new value based on mouse position
+                value_range = self.max_value - self.min_value
+                ratio = (mouse_pos[0] - self.x) / self.width
+                self.value = self.min_value + ratio * value_range
+                self.value = max(self.min_value, min(self.max_value, self.value))
+                return True
+        return False
+    
+    def get_value(self):
+        return self.value
 
-airResistance = 0.00
-radius = 5
+# Class to manage multiple sliders
+class SliderManager:
+    def __init__(self):
+        self.sliders = {}
+        self.visible = False
+        self.panel_padding = 30
+    
+    def add_slider(self, name, x, y, width, height, min_value, max_value, initial_value, label, precision=2):
+        self.sliders[name] = Slider(x, y, width, height, min_value, max_value, initial_value, label, precision)
+        return self.sliders[name]
+    
+    def toggle_visibility(self):
+        self.visible = not self.visible
+    
+    def draw(self, screen):
+        if not self.visible or not self.sliders:
+            return
+        
+        # Calculate panel dimensions
+        max_width = 0
+        max_height = 0
+        
+        for slider in self.sliders.values():
+            slider_full_width = slider.width + 150
+            max_width = max(max_width, slider_full_width)
+            max_height = max(max_height, slider.y + slider.height - list(self.sliders.values())[0].y)
+        
+        # Background for slider area
+        panel_x = self.panel_padding
+        panel_y = self.panel_padding
+        panel_width = max_width + self.panel_padding
+        panel_height = max_height + self.panel_padding
+        
+        pygame.draw.rect(screen, (40, 40, 40), (panel_x, panel_y, panel_width, panel_height))
+        
+        # Draw all sliders
+        for slider in self.sliders.values():
+            slider.draw(screen)
+    
+    def handle_interactions(self):
+        if not self.visible:
+            return {}
+        
+        mouse_pos = pygame.mouse.get_pos()
+        mouse_pressed = pygame.mouse.get_pressed()[0]
+        
+        changed_values = {}
+        for name, slider in self.sliders.items():
+            if slider.handle_interaction(mouse_pos, mouse_pressed):
+                changed_values[name] = slider.value
+        
+        return changed_values
+    
+    def get_value(self, name):
+        if name in self.sliders:
+            return self.sliders[name].value
+        return None
+
+# Initialize parameters that will be controlled by sliders
+airResistance = 0.03
+radius = 10
+
+# Create a slider manager
+slider_manager = SliderManager()
+
+# Add sliders for air resistance and radius
+slider_manager.add_slider(
+    "air_resistance", 
+    50, 50, 200, 20, 
+    0.0, 0.1, airResistance, 
+    "Air Resistance"
+)
+
+slider_manager.add_slider(
+    "radius", 
+    50, 90, 200, 20, 
+    5, 30, radius, 
+    "Radius",
+    precision=1
+)
+
+slider_manager.add_slider(
+    "mass",
+    50, 130, 200, 20,
+    1, 10, 1,
+    "Mass"
+)
+
+def handle_slider_interaction():
+    global airResistance, radius
+    
+    # Update values from sliders
+    changed_values = slider_manager.handle_interactions()
+    
+    if "air_resistance" in changed_values:
+        airResistance = changed_values["air_resistance"]
+    
+    if "radius" in changed_values:
+        radius = changed_values["radius"]
+
+    if "mass" in changed_values:
+        mass = changed_values["mass"]
+
+mass = 1
 
 # Create physics objects
-physicsEngine.phyObject(radius, 1, [100, 100], [0, 0], airResistance)
+physicsEngine.phyObject(radius, mass, [100, 100], [0, 0], airResistance)
 
 # Main loop
 running = True
@@ -203,6 +349,9 @@ while running:
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             running = False
+        elif event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_SPACE:
+                slider_manager.toggle_visibility()
         elif event.type == pygame.MOUSEBUTTONDOWN:
             if event.button == 1:  # Left mouse button
                 # Store state for rapid fire
@@ -210,21 +359,21 @@ while running:
                 pygame._last_spawn_time = pygame.time.get_ticks()
                 # Create initial object
                 mouse_pos = pygame.mouse.get_pos()
-                physicsEngine.phyObject(radius, 1, list(mouse_pos), [0,0], airResistance)
+                physicsEngine.phyObject(radius, mass, list(mouse_pos), [0,0], airResistance)
             elif event.button == 3:  # Right mouse button
                 # Store state for rapid fire
                 pygame._mouse_held = True
                 pygame._last_spawn_time = pygame.time.get_ticks()
                 # Create positive magnetic particle
                 mouse_pos = pygame.mouse.get_pos()
-                physicsEngine.magneticParticle(radius, 1, list(mouse_pos), [0,0], 1.0, airResistance)
+                physicsEngine.magneticParticle(radius, mass, list(mouse_pos), [0,0], 1.0, airResistance)
             elif event.button == 2:  # Middle mouse button
                 # Store state for rapid fire
                 pygame._mouse_held = True
                 pygame._last_spawn_time = pygame.time.get_ticks()
                 # Create negative magnetic particle
                 mouse_pos = pygame.mouse.get_pos()
-                physicsEngine.magneticParticle(radius, 1, list(mouse_pos), [0,0], -1.0, airResistance)
+                physicsEngine.magneticParticle(radius, mass, list(mouse_pos), [0,0], -1.0, airResistance)
         elif event.type == pygame.MOUSEBUTTONUP:
             if event.button in [1, 2, 3]:  # Any mouse button
                 pygame._mouse_held = False
@@ -239,7 +388,7 @@ while running:
         current_time = pygame.time.get_ticks()
         if current_time - pygame._last_spawn_time > 100:  # Create new object every 100ms
             mouse_pos = pygame.mouse.get_pos()
-            physicsEngine.phyObject(radius, 1, list(mouse_pos), [0,0], airResistance)
+            physicsEngine.phyObject(radius, mass, list(mouse_pos), [0,0], airResistance)
             pygame._last_spawn_time = current_time
     
     # Clear the screen
@@ -251,6 +400,9 @@ while running:
 
     # Update physics
     verletSolveScreen(1)
+
+    handle_slider_interaction()
+    slider_manager.draw(screen)
     
     # Update the display
     pygame.display.flip()
