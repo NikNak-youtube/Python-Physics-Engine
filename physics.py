@@ -231,6 +231,10 @@ class Slider:
                 return True
         return False
     
+    def is_mouse_over(self, mouse_pos):
+        return (self.x <= mouse_pos[0] <= self.x + self.width and
+                self.y <= mouse_pos[1] <= self.y + self.height)
+    
     def get_value(self):
         return self.value
 
@@ -240,6 +244,7 @@ class SliderManager:
         self.sliders = {}
         self.visible = False
         self.panel_padding = 30
+        self.interacting_with_slider = False
     
     def add_slider(self, name, x, y, width, height, min_value, max_value, initial_value, label, precision=2):
         self.sliders[name] = Slider(x, y, width, height, min_value, max_value, initial_value, label, precision)
@@ -275,10 +280,30 @@ class SliderManager:
     
     def handle_interactions(self):
         if not self.visible:
+            self.interacting_with_slider = False
             return {}
         
         mouse_pos = pygame.mouse.get_pos()
         mouse_pressed = pygame.mouse.get_pressed()[0]
+        
+        # Check if mouse is over any slider area
+        panel_area = False
+        if self.visible and self.sliders:
+            max_width = max(slider.width + 150 for slider in self.sliders.values())
+            max_height = max(slider.y + slider.height - list(self.sliders.values())[0].y for slider in self.sliders.values())
+            panel_x = self.panel_padding
+            panel_y = self.panel_padding
+            panel_width = max_width + self.panel_padding
+            panel_height = max_height + self.panel_padding
+            
+            panel_area = (panel_x <= mouse_pos[0] <= panel_x + panel_width and
+                          panel_y <= mouse_pos[1] <= panel_y + panel_height)
+        
+        # Set interacting flag if mouse is pressed and over a slider or panel
+        if mouse_pressed and panel_area:
+            self.interacting_with_slider = True
+        elif not mouse_pressed:
+            self.interacting_with_slider = False
         
         changed_values = {}
         for name, slider in self.sliders.items():
@@ -286,6 +311,9 @@ class SliderManager:
                 changed_values[name] = slider.value
         
         return changed_values
+    
+    def is_interacting(self):
+        return self.interacting_with_slider
     
     def get_value(self, name):
         if name in self.sliders:
@@ -353,27 +381,29 @@ while running:
             if event.key == pygame.K_SPACE:
                 slider_manager.toggle_visibility()
         elif event.type == pygame.MOUSEBUTTONDOWN:
-            if event.button == 1:  # Left mouse button
-                # Store state for rapid fire
-                pygame._mouse_held = True
-                pygame._last_spawn_time = pygame.time.get_ticks()
-                # Create initial object
-                mouse_pos = pygame.mouse.get_pos()
-                physicsEngine.phyObject(radius, mass, list(mouse_pos), [0,0], airResistance)
-            elif event.button == 3:  # Right mouse button
-                # Store state for rapid fire
-                pygame._mouse_held = True
-                pygame._last_spawn_time = pygame.time.get_ticks()
-                # Create positive magnetic particle
-                mouse_pos = pygame.mouse.get_pos()
-                physicsEngine.magneticParticle(radius, mass, list(mouse_pos), [0,0], 1.0, airResistance)
-            elif event.button == 2:  # Middle mouse button
-                # Store state for rapid fire
-                pygame._mouse_held = True
-                pygame._last_spawn_time = pygame.time.get_ticks()
-                # Create negative magnetic particle
-                mouse_pos = pygame.mouse.get_pos()
-                physicsEngine.magneticParticle(radius, mass, list(mouse_pos), [0,0], -1.0, airResistance)
+            # Only spawn objects if not interacting with sliders
+            if not slider_manager.is_interacting():
+                if event.button == 1:  # Left mouse button
+                    # Store state for rapid fire
+                    pygame._mouse_held = True
+                    pygame._last_spawn_time = pygame.time.get_ticks()
+                    # Create initial object
+                    mouse_pos = pygame.mouse.get_pos()
+                    physicsEngine.phyObject(radius, mass, list(mouse_pos), [0,0], airResistance)
+                elif event.button == 3:  # Right mouse button
+                    # Store state for rapid fire
+                    pygame._mouse_held = True
+                    pygame._last_spawn_time = pygame.time.get_ticks()
+                    # Create positive magnetic particle
+                    mouse_pos = pygame.mouse.get_pos()
+                    physicsEngine.magneticParticle(radius, mass, list(mouse_pos), [0,0], 1.0, airResistance)
+                elif event.button == 2:  # Middle mouse button
+                    # Store state for rapid fire
+                    pygame._mouse_held = True
+                    pygame._last_spawn_time = pygame.time.get_ticks()
+                    # Create negative magnetic particle
+                    mouse_pos = pygame.mouse.get_pos()
+                    physicsEngine.magneticParticle(radius, mass, list(mouse_pos), [0,0], -1.0, airResistance)
         elif event.type == pygame.MOUSEBUTTONUP:
             if event.button in [1, 2, 3]:  # Any mouse button
                 pygame._mouse_held = False
@@ -384,7 +414,7 @@ while running:
         pygame._last_spawn_time = 0
     
     # Rapid fire creation while mouse is held down
-    if pygame._mouse_held:
+    if pygame._mouse_held and not slider_manager.is_interacting():
         current_time = pygame.time.get_ticks()
         if current_time - pygame._last_spawn_time > 100:  # Create new object every 100ms
             mouse_pos = pygame.mouse.get_pos()
